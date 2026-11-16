@@ -1,0 +1,189 @@
+{
+  "profile": "gotd-optimized",
+  "sessions": 1000,
+  "ready": 1000,
+  "failed": 0,
+  "go_version": "go1.27.3",
+  "gomaxprocs": 12,
+  "connect_time": 117285647500,
+  "baseline": {
+    "at": "2026-11-17T04:38:37.2493086+07:00",
+    "goroutines": 1,
+    "heap_alloc": 763384,
+    "heap_inuse": 1581056,
+    "heap_objects": 1456,
+    "stack_inuse": 360448,
+    "sys": 13986040,
+    "rss": 13971456,
+    "num_gc": 2,
+    "gc_pause_total": 0,
+    "cpu": 46875000
+  },
+  "settled": {
+    "at": "2026-11-17T04:40:49.5558093+07:00",
+    "goroutines": 11001,
+    "heap_alloc": 26295296,
+    "heap_inuse": 45195264,
+    "heap_objects": 189338,
+    "stack_inuse": 90439680,
+    "sys": 182733048,
+    "rss": 187486208,
+    "num_gc": 243,
+    "gc_pause_total": 365853500,
+    "cpu": 1252781250000
+  },
+  "idle": {
+    "Start": {
+      "at": "2026-11-17T04:40:49.7305182+07:00",
+      "goroutines": 11001,
+      "heap_alloc": 118124184,
+      "heap_inuse": 135897088,
+      "heap_objects": 324501,
+      "stack_inuse": 90472448,
+      "sys": 266881272,
+      "rss": 192163840,
+      "num_gc": 244,
+      "gc_pause_total": 365853500,
+      "cpu": 1252953125000
+    },
+    "End": {
+      "at": "2026-11-17T04:41:19.7311931+07:00",
+      "goroutines": 11001,
+      "heap_alloc": 123117288,
+      "heap_inuse": 140369920,
+      "heap_objects": 354285,
+      "stack_inuse": 98566144,
+      "sys": 266881272,
+      "rss": 202715136,
+      "num_gc": 244,
+      "gc_pause_total": 365853500,
+      "cpu": 1253281250000
+    }
+  },
+  "load": {
+    "Start": {
+      "at": "2026-11-17T04:41:19.7322291+07:00",
+      "goroutines": 11003,
+      "heap_alloc": 123147240,
+      "heap_inuse": 140394496,
+      "heap_objects": 354418,
+      "stack_inuse": 98566144,
+      "sys": 266881272,
+      "rss": 202739712,
+      "num_gc": 244,
+      "gc_pause_total": 365853500,
+      "cpu": 1253281250000
+    },
+    "End": {
+      "at": "2026-11-17T04:41:49.7435554+07:00",
+      "goroutines": 11001,
+      "heap_alloc": 62166984,
+      "heap_inuse": 80945152,
+      "heap_objects": 321864,
+      "stack_inuse": 91553792,
+      "sys": 331229432,
+      "rss": 222601216,
+      "num_gc": 247,
+      "gc_pause_total": 366859500,
+      "cpu": 1256109375000
+    }
+  },
+  "load_rate_per_session": 1,
+  "load_updates_received": 30000,
+  "load_peak": {
+    "at": "2026-11-17T04:41:19.7322291+07:00",
+    "goroutines": 11003,
+    "heap_alloc": 123147240,
+    "heap_inuse": 204701696,
+    "heap_objects": 354418,
+    "stack_inuse": 98566144,
+    "sys": 266881272,
+    "rss": 281063424,
+    "num_gc": 244,
+    "gc_pause_total": 365853500,
+    "cpu": 1253281250000
+  },
+  "after_stop": {
+    "at": "2026-11-17T04:41:51.784008+07:00",
+    "goroutines": 1,
+    "heap_alloc": 19653128,
+    "heap_inuse": 23830528,
+    "heap_objects": 14297,
+    "stack_inuse": 7077888,
+    "sys": 331229432,
+    "rss": 221921280,
+    "num_gc": 249,
+    "gc_pause_total": 368369200,
+    "cpu": 1256250000000
+  },
+  "goroutine_creators": [
+    {
+      "func": "github.com/gotd/td/tdsync.(*CancellableGroup).Wait",
+      "count": 3000,
+      "per_session": 3
+    },
+    {
+      "func": "github.com/gotd/td/telegram.(*Client).Run.func2",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/gotd/td/proto/codec.readLen",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/gotd/td/telegram.(*Client).runUntilRestart.func3",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/gotd/td/mtproto.(*Conn).saltLoop",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/gotd/td/mtproto.(*Conn).pingLoop",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/Kenboo14/GoBot/bench/internal/profiles.setupGotdOptimized.func1.7",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/gotd/td/mtproto.(*Conn).ackLoop",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/gotd/td/mtproto.(*Conn).handleClose",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "main.goroutineCreators",
+      "count": 1,
+      "per_session": 0.001
+    }
+  ],
+  "derived": {
+    "goroutines_per_session": 11,
+    "heap_alloc_kib_per_session": 24.9335078125,
+    "heap_inuse_kib_per_session": 42.592,
+    "heap_objects_per_session": 187.882,
+    "idle_cpu_cores": 0.010937343632443869,
+    "idle_cpu_cores_per_1000_sessions": 0.010937343632443869,
+    "idle_gc_per_min": 0,
+    "leaked_goroutines_after_stop": 0,
+    "load_cpu_cores": 0.09423602819867843,
+    "load_cpu_us_per_update": 94.27083333333333,
+    "load_gc_per_min": 5.997784778170031,
+    "load_peak_goroutines": 11003,
+    "load_peak_heap_mib": 195.21875,
+    "load_updates_per_sec": 999.6307963616719,
+    "rss_kib_per_session": 169.448,
+    "stack_kib_per_session": 87.968
+  }
+}

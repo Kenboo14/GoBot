@@ -1,0 +1,159 @@
+{
+  "profile": "gobot-engine",
+  "sessions": 1000,
+  "ready": 1000,
+  "failed": 0,
+  "go_version": "go1.27.3",
+  "gomaxprocs": 12,
+  "connect_time": 119595195800,
+  "baseline": {
+    "at": "2026-11-17T04:42:35.7308139+07:00",
+    "goroutines": 1,
+    "heap_alloc": 760232,
+    "heap_inuse": 1581056,
+    "heap_objects": 1454,
+    "stack_inuse": 360448,
+    "sys": 14174456,
+    "rss": 13889536,
+    "num_gc": 2,
+    "gc_pause_total": 0,
+    "cpu": 15625000
+  },
+  "settled": {
+    "at": "2026-11-17T04:44:50.3320026+07:00",
+    "goroutines": 1026,
+    "heap_alloc": 6361480,
+    "heap_inuse": 10829824,
+    "heap_objects": 38556,
+    "stack_inuse": 8716288,
+    "sys": 41208056,
+    "rss": 46366720,
+    "num_gc": 657,
+    "gc_pause_total": 764129200,
+    "cpu": 1334468750000
+  },
+  "idle": {
+    "Start": {
+      "at": "2026-11-17T04:44:50.3725476+07:00",
+      "goroutines": 1026,
+      "heap_alloc": 80390752,
+      "heap_inuse": 84484096,
+      "heap_objects": 60128,
+      "stack_inuse": 8716288,
+      "sys": 112773368,
+      "rss": 110305280,
+      "num_gc": 658,
+      "gc_pause_total": 764129200,
+      "cpu": 1334500000000
+    },
+    "End": {
+      "at": "2026-11-17T04:45:20.3739946+07:00",
+      "goroutines": 1026,
+      "heap_alloc": 81144760,
+      "heap_inuse": 86695936,
+      "heap_objects": 64944,
+      "stack_inuse": 14450688,
+      "sys": 112773368,
+      "rss": 116936704,
+      "num_gc": 658,
+      "gc_pause_total": 764129200,
+      "cpu": 1334515625000
+    }
+  },
+  "load": {
+    "Start": {
+      "at": "2026-11-17T04:45:20.3758645+07:00",
+      "goroutines": 1028,
+      "heap_alloc": 81175272,
+      "heap_inuse": 86761472,
+      "heap_objects": 65078,
+      "stack_inuse": 14450688,
+      "sys": 112773368,
+      "rss": 116977664,
+      "num_gc": 658,
+      "gc_pause_total": 764129200,
+      "cpu": 1334515625000
+    },
+    "End": {
+      "at": "2026-11-17T04:45:50.3914277+07:00",
+      "goroutines": 1026,
+      "heap_alloc": 14073816,
+      "heap_inuse": 19472384,
+      "heap_objects": 64619,
+      "stack_inuse": 17203200,
+      "sys": 186140920,
+      "rss": 70328320,
+      "num_gc": 662,
+      "gc_pause_total": 764644800,
+      "cpu": 1337578125000
+    }
+  },
+  "load_rate_per_session": 1,
+  "load_updates_received": 30020,
+  "load_peak": {
+    "at": "2026-11-17T04:45:20.3758645+07:00",
+    "goroutines": 1028,
+    "heap_alloc": 81175272,
+    "heap_inuse": 146210816,
+    "heap_objects": 65078,
+    "stack_inuse": 14450688,
+    "sys": 112773368,
+    "rss": 190709760,
+    "num_gc": 658,
+    "gc_pause_total": 764129200,
+    "cpu": 1334515625000
+  },
+  "after_stop": {
+    "at": "2026-11-17T04:45:52.4085218+07:00",
+    "goroutines": 1,
+    "heap_alloc": 4628704,
+    "heap_inuse": 5906432,
+    "heap_objects": 4789,
+    "stack_inuse": 3801088,
+    "sys": 186140920,
+    "rss": 69324800,
+    "num_gc": 664,
+    "gc_pause_total": 764644800,
+    "cpu": 1337687500000
+  },
+  "goroutine_creators": [
+    {
+      "func": "github.com/gotd/td/proto/codec.readLen",
+      "count": 1000,
+      "per_session": 1
+    },
+    {
+      "func": "github.com/Kenboo14/GoBot/engine.(*Scheduler).worker",
+      "count": 24,
+      "per_session": 0.024
+    },
+    {
+      "func": "main.goroutineCreators",
+      "count": 1,
+      "per_session": 0.001
+    },
+    {
+      "func": "github.com/Kenboo14/GoBot/engine.(*Scheduler).tickLoop",
+      "count": 1,
+      "per_session": 0.001
+    }
+  ],
+  "derived": {
+    "goroutines_per_session": 1.025,
+    "heap_alloc_kib_per_session": 5.46996875,
+    "heap_inuse_kib_per_session": 9.032,
+    "heap_objects_per_session": 37.102,
+    "idle_cpu_cores": 0.0005208124852095504,
+    "idle_cpu_cores_per_1000_sessions": 0.0005208124852095504,
+    "idle_gc_per_min": 0,
+    "leaked_goroutines_after_stop": 0,
+    "load_cpu_cores": 0.10203123924351278,
+    "load_cpu_us_per_update": 102.01532311792138,
+    "load_gc_per_min": 7.995917524389571,
+    "load_peak_goroutines": 1028,
+    "load_peak_heap_mib": 139.4375,
+    "load_updates_per_sec": 1000.1560170090623,
+    "rss_kib_per_session": 31.716,
+    "stack_kib_per_session": 8.16
+  }
+}

@@ -1,0 +1,14 @@
+# Compiled binaries and test artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.pprof
+bin/
+bench/bin/
+
+# Transient benchmark files
+bench/out/dc.json
+bench/out/*-n20.json
