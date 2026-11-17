@@ -32,6 +32,19 @@ func NewPool(opts PoolOptions) *Pool {
 	}
 }
 
+var (
+	defaultPoolOnce sync.Once
+	defaultPoolInst *Pool
+)
+
+// DefaultPool returns the process-wide shared Pool initialized lazily on first use.
+func DefaultPool() *Pool {
+	defaultPoolOnce.Do(func() {
+		defaultPoolInst = NewPool(PoolOptions{})
+	})
+	return defaultPoolInst
+}
+
 // NewClient creates a new Client attached to this Pool.
 func (p *Pool) NewClient(opts ClientOptions) (*Client, error) {
 	opts.Pool = p

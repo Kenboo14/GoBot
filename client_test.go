@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gotd/td/bin"
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/tg"
@@ -197,5 +199,95 @@ func TestBotCompat_HandlersAndHTTPFallback(t *testing.T) {
 	defer mu.Unlock()
 	if len(calls) != 4 {
 		t.Fatalf("expected 4 HTTP API calls, got %v", calls)
+	}
+}
+
+type countMiddleware struct {
+	calls *atomic.Int64
+}
+
+func (m countMiddleware) Handle(next tg.Invoker) gobot.InvokeFunc {
+	return func(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+		m.calls.Add(1)
+		return next.Invoke(ctx, input, output)
+	}
+}
+
+func TestNewTelegramClient_MiddlewareStateNoUpdatesAuthSender(t *testing.T) {
+	srv, err := fakedc.New(fakedc.Options{Contacts: 2, Dialogs: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dcCtx, stopDC := context.WithCancel(context.Background())
+	defer stopDC()
+	infoCh := make(chan fakedc.Info, 1)
+	go func() {
+		_ = srv.Serve(dcCtx, "127.0.0.1:0", func(info fakedc.Info) {
+			infoCh <- info
+		})
+	}()
+	info := <-infoCh
+	pk, err := info.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool := gobot.NewPool(gobot.PoolOptions{
+		Scheduler: engine.SchedulerOptions{Workers: 4},
+	})
+	defer pool.Close()
+
+	var mwCalls atomic.Int64
+	var mu sync.Mutex
+	var states []gobot.ConnectionState
+
+	client := gobot.NewTelegramClient(1, "hash", gobot.TelegramOptions{
+		Pool:           pool,
+		DC:             info.DC,
+		DCList:         dcs.List{Options: []tg.DCOption{{ID: info.DC, IPAddress: info.Addr, Port: info.Port, Static: true}}},
+		Resolver:       dcs.Plain(dcs.PlainOptions{Protocol: transport.Intermediate}),
+		PublicKeys:     []engine.PublicKey{pk},
+		SessionStorage: &session.StorageMemory{},
+		NoUpdates:      true,
+		Middlewares:    []gobot.Middleware{countMiddleware{calls: &mwCalls}},
+		OnConnectionState: func(st gobot.ConnectionState) {
+			mu.Lock()
+			states = append(states, st)
+			mu.Unlock()
+		},
+	})
+
+	if client.Auth() == nil {
+		t.Fatal("expected non-nil Auth()")
+	}
+	if client.Sender() == nil {
+		t.Fatal("expected non-nil Sender()")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// NoUpdates: true should exit Run with nil as soon as onReady returns nil.
+	err = client.Run(ctx, func(ctx context.Context) error {
+		u, err := client.Self(ctx)
+		if err != nil {
+			return err
+		}
+		if u.ID == 0 {
+			t.Errorf("expected non-zero user ID")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected clean nil return for NoUpdates one-shot Run, got: %v", err)
+	}
+	if mwCalls.Load() == 0 {
+		t.Fatal("expected middleware to be invoked on RPC")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(states) < 2 || states[0] != gobot.ConnectionStateConnecting || states[1] != gobot.ConnectionStateReady {
+		t.Fatalf("expected [Connecting, Ready], got %v", states)
 	}
 }

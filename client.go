@@ -2,6 +2,7 @@ package gobot
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -13,7 +14,9 @@ import (
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/telegram/dcs"
+	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/tg"
 
 	"github.com/Kenboo14/GoBot/engine"
@@ -21,6 +24,38 @@ import (
 	"github.com/Kenboo14/GoBot/peers"
 	"github.com/Kenboo14/GoBot/types"
 )
+
+// Re-export gotd lifecycle and middleware types for drop-in migration from
+// telegram.Client to gobot.Client.
+type (
+	ConnectionState = telegram.ConnectionState
+	Middleware      = telegram.Middleware
+	InvokeFunc      = telegram.InvokeFunc
+)
+
+const (
+	ConnectionStateConnecting   = telegram.ConnectionStateConnecting
+	ConnectionStateReady        = telegram.ConnectionStateReady
+	ConnectionStateDisconnected = telegram.ConnectionStateDisconnected
+)
+
+// TelegramOptions mirrors telegram.Options for drop-in migration from
+// telegram.NewClient to gobot.NewTelegramClient.
+type TelegramOptions struct {
+	PublicKeys        []engine.PublicKey
+	DC                int
+	DCList            dcs.List
+	Resolver          dcs.Resolver
+	NoUpdates         bool
+	OnDead            func(error)
+	OnConnectionState func(ConnectionState)
+	SessionStorage    session.Storage
+	UpdateHandler     telegram.UpdateHandler
+	Middlewares       []Middleware
+	Device            engine.DeviceConfig
+	Layer             int
+	Pool              *Pool
+}
 
 // ClientOptions configures a GoBot Client.
 type ClientOptions struct {
@@ -75,10 +110,16 @@ type Client struct {
 	api      *tg.Client
 	peers    *peers.Cache
 
+	appID   int
+	apiHash string
+
 	token      string
 	serverURL  string
 	httpClient *http.Client
 	selfID     atomic.Int64
+
+	senderOnce sync.Once
+	sender     *message.Sender
 
 	mu             sync.RWMutex
 	msgHandlers    []messageEntry
@@ -107,6 +148,8 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		pool:      pool,
 		ownsPool:  ownsPool,
 		peers:     pool.Peers,
+		appID:     opts.AppID,
+		apiHash:   opts.APIHash,
 		token:     opts.BotToken,
 		serverURL: opts.ServerURL,
 	}
@@ -136,6 +179,61 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	c.conn = conn
 	c.api = tg.NewClient(conn)
 	return c, nil
+}
+
+// NewTelegramClient creates a lightweight GoBot Client using a signature
+// compatible with telegram.NewClient. When opts.Pool is nil, it uses
+// DefaultPool() so sessions automatically share one Scheduler and peer cache.
+func NewTelegramClient(appID int, apiHash string, opts TelegramOptions) *Client {
+	pool := opts.Pool
+	if pool == nil {
+		pool = DefaultPool()
+	} else {
+		if pool.Scheduler == nil {
+			pool.Scheduler = engine.NewScheduler(engine.SchedulerOptions{})
+		}
+		if pool.Peers == nil {
+			pool.Peers = peers.NewCache(peers.Options{})
+		}
+	}
+
+	c := &Client{
+		pool:    pool,
+		peers:   pool.Peers,
+		appID:   appID,
+		apiHash: apiHash,
+	}
+
+	extHandler := opts.UpdateHandler
+	conn, err := engine.NewConn(engine.ConnOptions{
+		Scheduler:         pool.Scheduler,
+		AppID:             appID,
+		DC:                opts.DC,
+		DCList:            opts.DCList,
+		Resolver:          opts.Resolver,
+		PublicKeys:        opts.PublicKeys,
+		SessionStorage:    opts.SessionStorage,
+		Device:            opts.Device,
+		Layer:             opts.Layer,
+		NoUpdates:         opts.NoUpdates,
+		Middlewares:       opts.Middlewares,
+		OnDead:            opts.OnDead,
+		OnConnectionState: opts.OnConnectionState,
+		UpdateHandler: func(ctx context.Context, u tg.UpdatesClass) error {
+			_ = c.handleUpdates(ctx, u)
+			if extHandler != nil {
+				return extHandler.Handle(ctx, u)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		// DefaultPool guarantees non-nil Scheduler, so NewConn cannot fail.
+		panic(err)
+	}
+	c.conn = conn
+	c.api = tg.NewClient(conn)
+	return c
 }
 
 // NewFromGotd wraps an existing *telegram.Client with a shared *peers.Cache.
@@ -183,6 +281,35 @@ func (c *Client) API() *tg.Client { return c.api }
 
 // Peers returns the shared peer cache.
 func (c *Client) Peers() *peers.Cache { return c.peers }
+
+// Invoke implements bin.Invoker by delegating to the underlying connection.
+func (c *Client) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+	if c == nil {
+		return engine.ErrConnClosed
+	}
+	if c.conn != nil {
+		return c.conn.Invoke(ctx, input, output)
+	}
+	if c.tgClient != nil {
+		return c.tgClient.Invoke(ctx, input, output)
+	}
+	return errors.New("gobot: no MTProto client available")
+}
+
+// Auth returns a Telegram authentication client backed by this Client's API.
+func (c *Client) Auth() *auth.Client {
+	return auth.NewClient(c.API(), rand.Reader, c.appID, c.apiHash)
+}
+
+// Sender returns a cached high-level *message.Sender for this Client.
+func (c *Client) Sender() *message.Sender {
+	c.senderOnce.Do(func() {
+		if c.api != nil {
+			c.sender = message.NewSender(c.api)
+		}
+	})
+	return c.sender
+}
 
 // UpdateHandler returns a telegram.UpdateHandler forwarding updates into this
 // Client's registered handlers and peer cache (useful with NewFromGotd).

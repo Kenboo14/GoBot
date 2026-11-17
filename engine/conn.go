@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -54,6 +55,8 @@ var (
 	ErrConnClosed = errors.New("engine: connection closed")
 	// ErrPingTimeout is returned when a keepalive ping times out.
 	ErrPingTimeout = errors.New("engine: keepalive ping timeout")
+	// ErrConnMigrating is used internally to abort pending RPCs on the old DC during DC migration.
+	ErrConnMigrating = errors.New("engine: connection migrating DC")
 )
 
 // PublicKey is an RSA public key used for MTProto DH exchange.
@@ -99,6 +102,12 @@ type ConnOptions struct {
 	// RequestTimeout limits an individual RPC Invoke when ctx has no deadline
 	// (defaults to 30s).
 	RequestTimeout time.Duration
+	// Middlewares wraps RPC invocations (e.g. flood-wait guards).
+	Middlewares []telegram.Middleware
+	// OnDead is invoked when the connection terminates with a non-cancellation error.
+	OnDead func(error)
+	// OnConnectionState is invoked on connection lifecycle transitions.
+	OnConnectionState func(telegram.ConnectionState)
 }
 
 func (o *ConnOptions) setDefaults() {
@@ -157,21 +166,37 @@ const (
 	maxMsgFuture = 30 * time.Second
 )
 
+type rawInvoker struct {
+	c *Conn
+}
+
+func (r rawInvoker) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+	return r.c.invokeDirect(ctx, input, output)
+}
+
 // Conn is an ultra-lightweight MTProto connection implementing bin.Invoker so
 // tg.NewClient(conn) can be used directly.
 type Conn struct {
-	id         uint64
-	sched      *Scheduler
-	opts       ConnOptions
-	storage    *session.Loader
-	onUpdate   UpdateHandler
-	runCtx     context.Context
-	stopCh     chan struct{}
-	closeOnce  sync.Once
-	closed     atomic.Bool
-	closeCause atomic.Value
+	id            uint64
+	sched         *Scheduler
+	opts          ConnOptions
+	invoker       tg.Invoker
+	storage       *session.Loader
+	onUpdate      UpdateHandler
+	runCtx        context.Context
+	stopCh        chan struct{}
+	closeOnce     sync.Once
+	closed        atomic.Bool
+	noUpdatesExit atomic.Bool
+	closeCause    atomic.Value
 
-	conn transport.Conn
+	connMu sync.Mutex
+	conn   transport.Conn
+
+	migrateMu     sync.Mutex
+	migrateDC     atomic.Int32
+	migrateDoneMu sync.Mutex
+	migrateDone   chan error
 
 	writeMu     sync.Mutex
 	sentContent int32
@@ -219,7 +244,7 @@ func NewConn(opts ConnOptions) (*Conn, error) {
 	if opts.SessionStorage != nil {
 		loader = &session.Loader{Storage: opts.SessionStorage}
 	}
-	return &Conn{
+	c := &Conn{
 		id:       opts.Scheduler.nextID.Add(1),
 		sched:    opts.Scheduler,
 		opts:     opts,
@@ -227,7 +252,27 @@ func NewConn(opts ConnOptions) (*Conn, error) {
 		onUpdate: opts.UpdateHandler,
 		dc:       opts.DC,
 		stopCh:   make(chan struct{}),
-	}, nil
+	}
+	var inv tg.Invoker = rawInvoker{c: c}
+	for i := len(opts.Middlewares) - 1; i >= 0; i-- {
+		if opts.Middlewares[i] != nil {
+			inv = opts.Middlewares[i].Handle(inv)
+		}
+	}
+	c.invoker = inv
+	return c, nil
+}
+
+func (c *Conn) notifyState(st telegram.ConnectionState) {
+	if c.opts.OnConnectionState != nil {
+		c.opts.OnConnectionState(st)
+	}
+}
+
+func (c *Conn) notifyDead(err error) {
+	if c.opts.OnDead != nil && err != nil {
+		c.opts.OnDead(err)
+	}
 }
 
 // Run establishes the MTProto session, runs initConnection and onReady, and
@@ -237,10 +282,19 @@ func NewConn(opts ConnOptions) (*Conn, error) {
 // Unlike telegram.Client.Run, onReady should return after performing startup
 // initialization; the connection stays alive until ctx is canceled or closed.
 func (c *Conn) Run(ctx context.Context, onReady func(ctx context.Context) error) error {
+	c.notifyState(telegram.ConnectionStateConnecting)
 	if err := c.restoreSession(ctx); err != nil {
+		if ctx.Err() == nil {
+			c.notifyState(telegram.ConnectionStateDisconnected)
+			c.notifyDead(err)
+		}
 		return err
 	}
 	if err := c.dialAndHandshake(ctx); err != nil {
+		if ctx.Err() == nil {
+			c.notifyState(telegram.ConnectionStateDisconnected)
+			c.notifyDead(err)
+		}
 		return err
 	}
 
@@ -272,22 +326,79 @@ func (c *Conn) Run(ctx context.Context, onReady func(ctx context.Context) error)
 		}
 	}()
 
-	err := c.readLoop(runCtx)
+	var (
+		migWg sync.WaitGroup
+		err   error
+	)
+	for {
+		err = c.readLoop(runCtx)
+		targetDC := int(c.migrateDC.Swap(0))
+		if targetDC > 0 && runCtx.Err() == nil && !c.closed.Load() {
+			c.failAllPending(ErrConnMigrating)
+			if mErr := c.prepareMigration(runCtx, targetDC); mErr != nil {
+				c.finishMigration(mErr)
+				err = mErr
+				runCancel(mErr)
+				break
+			}
+			migWg.Add(1)
+			go func() {
+				defer migWg.Done()
+				cfg, initErr := c.initConnection(runCtx)
+				if initErr == nil {
+					c.saveSession(runCtx, cfg)
+					c.notifyState(telegram.ConnectionStateReady)
+				}
+				c.finishMigration(initErr)
+				if initErr != nil {
+					runCancel(initErr)
+				}
+			}()
+			continue
+		}
+		break
+	}
+
 	runCancel(err)
 	<-initDone
+	migWg.Wait()
 
-	if cause := context.Cause(runCtx); cause != nil && !errors.Is(cause, context.Canceled) {
-		return cause
+	if c.noUpdatesExit.Load() && ctx.Err() == nil {
+		return nil
 	}
-	if c.closeCause.Load() != nil {
-		if ce, ok := c.closeCause.Load().(error); ok && ce != nil {
-			return ce
-		}
+
+	finalErr := err
+	if cause := context.Cause(runCtx); cause != nil && !errors.Is(cause, context.Canceled) {
+		finalErr = cause
+	}
+	if ce, ok := c.closeCause.Load().(error); ok && ce != nil && !errors.Is(ce, context.Canceled) {
+		finalErr = ce
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return err
+	if finalErr != nil {
+		c.notifyState(telegram.ConnectionStateDisconnected)
+		c.notifyDead(finalErr)
+	}
+	return finalErr
+}
+
+func (c *Conn) getConn() transport.Conn {
+	c.connMu.Lock()
+	tc := c.conn
+	c.connMu.Unlock()
+	return tc
+}
+
+func (c *Conn) closeCurrentConn() {
+	c.connMu.Lock()
+	tc := c.conn
+	c.conn = nil
+	c.connMu.Unlock()
+	if tc != nil {
+		_ = tc.Close()
+	}
 }
 
 func (c *Conn) closeTransport(cause error) {
@@ -297,9 +408,7 @@ func (c *Conn) closeTransport(cause error) {
 		}
 		c.closed.Store(true)
 		close(c.stopCh)
-		if c.conn != nil {
-			_ = c.conn.Close()
-		}
+		c.closeCurrentConn()
 	})
 }
 
@@ -364,12 +473,14 @@ func (c *Conn) dialAndHandshake(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("engine: dial dc %d: %w", c.dc, err)
 	}
+	c.connMu.Lock()
 	c.conn = tConn
+	c.connMu.Unlock()
 
 	_, sid, key, _, _ := c.snapshotSession()
 	if key.Zero() {
 		if err := c.createAuthKey(ctx); err != nil {
-			_ = tConn.Close()
+			c.closeCurrentConn()
 			return fmt.Errorf("engine: auth key exchange: %w", err)
 		}
 		return nil
@@ -377,7 +488,7 @@ func (c *Conn) dialAndHandshake(ctx context.Context) error {
 	if sid == 0 {
 		newSID, err := crypto.RandInt64(c.sched.rand)
 		if err != nil {
-			_ = tConn.Close()
+			c.closeCurrentConn()
 			return err
 		}
 		c.sessionMu.Lock()
@@ -387,14 +498,76 @@ func (c *Conn) dialAndHandshake(ctx context.Context) error {
 	return nil
 }
 
+func (c *Conn) prepareMigration(ctx context.Context, targetDC int) error {
+	c.inited.Store(false)
+	c.salts.Reset()
+	c.seenMsgIDs = [64]int64{}
+
+	c.sessionMu.Lock()
+	c.dc = targetDC
+	c.authKey = crypto.AuthKey{}
+	c.sessionID = 0
+	c.salt = 0
+	c.sessionMu.Unlock()
+
+	c.writeMu.Lock()
+	c.sentContent = 0
+	c.writeMu.Unlock()
+
+	return c.dialAndHandshake(ctx)
+}
+
+func (c *Conn) finishMigration(err error) {
+	c.migrateDoneMu.Lock()
+	ch := c.migrateDone
+	c.migrateDone = nil
+	c.migrateDoneMu.Unlock()
+	if ch != nil {
+		ch <- err
+		close(ch)
+	}
+}
+
+func (c *Conn) migrateTo(ctx context.Context, targetDC int) error {
+	c.migrateMu.Lock()
+	defer c.migrateMu.Unlock()
+
+	dc, _, _, _, _ := c.snapshotSession()
+	if dc == targetDC {
+		return nil
+	}
+
+	ch := make(chan error, 1)
+	c.migrateDoneMu.Lock()
+	c.migrateDone = ch
+	c.migrateDoneMu.Unlock()
+
+	c.migrateDC.Store(int32(targetDC))
+	c.closeCurrentConn()
+
+	select {
+	case err := <-ch:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.stopCh:
+		return ErrConnClosed
+	}
+}
+
 func (c *Conn) createAuthKey(ctx context.Context) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
+	tc := c.getConn()
+	if tc == nil {
+		return ErrConnClosed
+	}
+
 	exCtx, cancel := context.WithTimeout(ctx, c.opts.ExchangeTimeout)
 	defer cancel()
 
-	ex := exchange.NewExchanger(c.conn, c.dc).
+	ex := exchange.NewExchanger(tc, c.dc).
 		WithTimeout(c.opts.ExchangeTimeout).
 		WithRand(c.sched.rand)
 	res, err := ex.Client(c.opts.PublicKeys).Run(exCtx)
@@ -419,10 +592,19 @@ func (c *Conn) bootstrap(ctx context.Context, onReady func(ctx context.Context) 
 	c.saveSession(ctx, cfg)
 	// Request initial future salts asynchronously via scheduler worker if desired.
 	c.nextSaltNano.Store(time.Now().UnixNano() + c.sched.opts.SaltFetchInterval.Nanoseconds())
-	c.requestSalts()
+	if !c.opts.NoUpdates {
+		c.requestSalts()
+	}
+	c.notifyState(telegram.ConnectionStateReady)
 
 	if onReady != nil {
-		return onReady(ctx)
+		if err := onReady(ctx); err != nil {
+			return err
+		}
+	}
+	if c.opts.NoUpdates {
+		c.noUpdatesExit.Store(true)
+		c.closeTransport(nil)
 	}
 	return nil
 }
@@ -481,6 +663,29 @@ func (c *Conn) wrapInit(query bin.Object) bin.Object {
 
 // Invoke sends an MTProto RPC request and decodes the response into output.
 func (c *Conn) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+	if c.invoker != nil {
+		return c.invoker.Invoke(ctx, input, output)
+	}
+	return c.invokeDirect(ctx, input, output)
+}
+
+func (c *Conn) invokeDirect(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+	err := c.invokeRaw(ctx, input, output)
+	if err == nil {
+		return nil
+	}
+	if rpcErr, ok := tgerr.As(err); ok && strings.HasSuffix(rpcErr.Type, "_MIGRATE") {
+		if !rpcErr.IsOneOf("FILE_MIGRATE", "STATS_MIGRATE") && rpcErr.Argument > 0 {
+			if mErr := c.migrateTo(ctx, rpcErr.Argument); mErr != nil {
+				return mErr
+			}
+			return c.invokeRaw(ctx, input, output)
+		}
+	}
+	return err
+}
+
+func (c *Conn) invokeRaw(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
 	if c.closed.Load() {
 		return ErrConnClosed
 	}
@@ -505,6 +710,9 @@ func (c *Conn) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder
 		err := c.invokeOnce(ctx, payload, output)
 		if err == nil {
 			return nil
+		}
+		if errors.Is(err, ErrConnMigrating) {
+			return err
 		}
 		var bad *badMessageError
 		if errors.As(err, &bad) {
@@ -616,7 +824,14 @@ func (c *Conn) writeAndRegister(ctx context.Context, input bin.Encoder, call *rp
 		return 0, err
 	}
 
-	if err := c.conn.Send(ctx, b); err != nil {
+	tc := c.getConn()
+	if tc == nil {
+		if call != nil {
+			c.removePending(msgID)
+		}
+		return 0, ErrConnClosed
+	}
+	if err := tc.Send(ctx, b); err != nil {
 		if call != nil {
 			c.removePending(msgID)
 		}
@@ -811,10 +1026,14 @@ func (c *Conn) flushAcks() {
 }
 
 func (c *Conn) readLoop(ctx context.Context) error {
+	tc := c.getConn()
+	if tc == nil {
+		return ErrConnClosed
+	}
 	readBuf := bin.Buffer{Buf: make([]byte, 0, 256)}
 	for {
 		readBuf.Reset()
-		if err := c.conn.Recv(ctx, &readBuf); err != nil {
+		if err := tc.Recv(ctx, &readBuf); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
