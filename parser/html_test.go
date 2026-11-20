@@ -55,3 +55,14 @@ func TestSanitizeEntities(t *testing.T) {
 		t.Fatalf("expected clamped length 5, got %d", got[0].GetLength())
 	}
 }
+
+func TestCleanHTML_MultipleButtonRows(t *testing.T) {
+	in := `<h1>Menu</h1><tg-button-row><tg-button type="callback_data" data="a">A</tg-button></tg-button-row><tg-button-row><tg-button type="callback_data" data="b">B</tg-button></tg-button-row><p>Footer</p>`
+	cleaned := CleanHTML(in)
+	if strings.Contains(cleaned, "<tg-button") || strings.Contains(cleaned, "tg-button-row") {
+		t.Fatalf("expected all button rows stripped, got: %q", cleaned)
+	}
+	if !strings.Contains(cleaned, "<b>Menu</b>") || !strings.Contains(cleaned, "Footer") {
+		t.Fatalf("unexpected cleaned output: %q", cleaned)
+	}
+}

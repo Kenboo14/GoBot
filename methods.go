@@ -500,7 +500,8 @@ func (e apiEndpoint) deleteMessages(ctx context.Context, params *types.DeleteMes
 			})
 		} else {
 			_, mtErr = e.api.MessagesDeleteMessages(ctx, &tg.MessagesDeleteMessagesRequest{
-				ID: params.MessageIDs,
+				Revoke: true,
+				ID:     params.MessageIDs,
 			})
 		}
 		if mtErr == nil {

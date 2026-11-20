@@ -157,10 +157,16 @@ func CleanHTML(text string) string {
 	s = strings.ReplaceAll(s, "</h1>", "</b>\n")
 	s = strings.ReplaceAll(s, "<h2>", "<b>")
 	s = strings.ReplaceAll(s, "</h2>", "</b>\n")
-	if idx := strings.Index(s, "<tg-button-row>"); idx != -1 {
-		if endIdx := strings.Index(s, "</tg-button-row>"); endIdx != -1 {
-			s = s[:idx] + s[endIdx+len("</tg-button-row>"):]
+	for {
+		idx := strings.Index(s, "<tg-button-row>")
+		if idx == -1 {
+			break
 		}
+		endIdx := strings.Index(s[idx:], "</tg-button-row>")
+		if endIdx == -1 {
+			break
+		}
+		s = s[:idx] + s[idx+endIdx+len("</tg-button-row>"):]
 	}
 	s = strings.ReplaceAll(s, "<tr><th>", "• <b>")
 	s = strings.ReplaceAll(s, "</th><th>", " | ")
