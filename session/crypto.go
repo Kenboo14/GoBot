@@ -169,6 +169,12 @@ func IsSessionRevoked(err error) bool {
 	}
 
 	if strings.Contains(errStr, "FLOOD_WAIT") ||
+		strings.Contains(errStr, "PEER_FLOOD") ||
+		strings.Contains(errStr, "INPUT_USER_DEACTIVATED") ||
+		strings.Contains(errStr, "USER_IS_BLOCKED") ||
+		strings.Contains(errStr, "USER_IS_BOT") ||
+		strings.Contains(errStr, "USER_PRIVACY_RESTRICTED") ||
+		strings.Contains(errStr, "USER_ID_INVALID") ||
 		strings.Contains(errStr, "CHAT_WRITE_FORBIDDEN") ||
 		strings.Contains(errStr, "PEER_ID_INVALID") ||
 		strings.Contains(errStr, "CHANNEL_PRIVATE") ||

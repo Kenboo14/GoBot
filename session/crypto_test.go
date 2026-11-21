@@ -106,6 +106,12 @@ func TestIsSessionRevoked(t *testing.T) {
 		errors.New("read: EOF"),
 		errors.New("FLOOD_WAIT_30"),
 		errors.New("PEER_ID_INVALID"),
+		errors.New("rpcDoRequest: rpc error code 400: INPUT_USER_DEACTIVATED"),
+		errors.New("rpcDoRequest: rpc error code 403: USER_IS_BLOCKED"),
+		errors.New("rpcDoRequest: rpc error code 400: PEER_FLOOD"),
+		errors.New("rpcDoRequest: rpc error code 403: USER_PRIVACY_RESTRICTED"),
+		errors.New("rpcDoRequest: rpc error code 400: USER_IS_BOT"),
+		errors.New("rpcDoRequest: rpc error code 400: USER_ID_INVALID"),
 	}
 	for _, err := range transient {
 		if IsSessionRevoked(err) {
