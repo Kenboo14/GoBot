@@ -184,6 +184,11 @@ func (e apiEndpoint) sendMessage(ctx context.Context, params *types.SendMessageP
 	if e.api != nil && e.peers != nil && chatID != 0 {
 		if peer := e.peers.GetInputPeer(chatID); peer != nil {
 			plainText, entities := parser.ParseHTML(params.Text)
+			isRich := parser.IsRichContent(params.Text)
+			if isRich {
+				plainText = ""
+				entities = nil
+			}
 			markup := keyboard.ConvertReplyMarkup(params.ReplyMarkup)
 			req := &tg.MessagesSendMessageRequest{
 				Peer:        peer,
@@ -202,7 +207,7 @@ func (e apiEndpoint) sendMessage(ctx context.Context, params *types.SendMessageP
 					ReplyToMsgID: params.ReplyParameters.MessageID,
 				})
 			}
-			if parser.IsRichContent(params.Text) {
+			if isRich {
 				req.SetRichMessage(rich.HTML(parser.FormatRichHTML(params.Text)))
 			}
 			updates, err := e.api.MessagesSendMessage(ctx, req)
@@ -352,6 +357,11 @@ func (e apiEndpoint) editMessageText(ctx context.Context, params *types.EditMess
 	var mtErr error
 	if e.api != nil {
 		plainText, entities := parser.ParseHTML(params.Text)
+		isRich := parser.IsRichContent(params.Text)
+		if isRich {
+			plainText = ""
+			entities = nil
+		}
 		markup := keyboard.ConvertReplyMarkup(params.ReplyMarkup)
 
 		if params.RawInlineMessageID != nil {
@@ -361,7 +371,7 @@ func (e apiEndpoint) editMessageText(ctx context.Context, params *types.EditMess
 				Entities:    entities,
 				ReplyMarkup: markup,
 			}
-			if parser.IsRichContent(params.Text) {
+			if isRich {
 				req.SetRichMessage(rich.HTML(parser.FormatRichHTML(params.Text)))
 			}
 			_, err := e.api.MessagesEditInlineBotMessage(ctx, req)
@@ -385,7 +395,7 @@ func (e apiEndpoint) editMessageText(ctx context.Context, params *types.EditMess
 					Entities:    entities,
 					ReplyMarkup: markup,
 				}
-				if parser.IsRichContent(params.Text) {
+				if isRich {
 					req.SetRichMessage(rich.HTML(parser.FormatRichHTML(params.Text)))
 				}
 				_, err := e.api.MessagesEditMessage(ctx, req)
